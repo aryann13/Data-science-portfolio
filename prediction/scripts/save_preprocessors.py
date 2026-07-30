@@ -51,11 +51,12 @@ for col in df.columns:
         else:
             df[col] = df[col].astype(np.float32)
 
-# ── 3. Drop same columns as notebook ─────────────────────────────────────────
+# ── 3. Drop collinear, redundant & uninformative columns ─────────────────────
 cols_to_drop = [
     'journey_id', 'departure_date', 'delay_minutes', 'primary_delay_cause',
-    'zone', 'is_overloaded', 'fog_risk_score', 'seat_utilisation_pct',
-    'is_circular_route', 'train_number'
+    'zone', 'is_overloaded', 'fog_risk_score', 'is_fog_risk', 'seat_utilisation_pct',
+    'is_circular_route', 'train_number', 'scheduled_travel_hours', 'year',
+    'is_peak_hour', 'is_special_train', 'is_monsoon_season', 'is_electrified', 'is_weekend'
 ]
 df = df.drop(columns=cols_to_drop, errors='ignore')
 
@@ -80,10 +81,10 @@ X = df.drop(columns=['is_delayed'])
 
 # ── 6. Fit + save StandardScaler ─────────────────────────────────────────────
 cols_to_scale = [
-    'distance_km', 'num_scheduled_stops', 'scheduled_travel_hours',
-    'psr_count', 'zone_fog_index', 'zone_congestion_index',
-    'season_severity_score', 'loco_age_years', 'coach_age_years',
-    'maintenance_score', 'late_incoming_rake', 'route_historical_ontime_pct'
+    'distance_km', 'num_scheduled_stops', 'psr_count', 'zone_fog_index',
+    'zone_congestion_index', 'season_severity_score', 'loco_age_years',
+    'coach_age_years', 'maintenance_score', 'late_incoming_rake',
+    'route_historical_ontime_pct'
 ]
 scaler = StandardScaler()
 scaler.fit(X[cols_to_scale])

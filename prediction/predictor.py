@@ -9,6 +9,7 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
+import shap
 from datetime import datetime, timezone
 
 # ── Paths & Loading ──────────────────────────────────────────────────────────
@@ -17,13 +18,15 @@ MODELS_DIR = os.path.join(BASE_DIR, "models")
 
 # Load pre-trained assets
 model = joblib.load(os.path.join(MODELS_DIR, "xgb_trained.pkl"))
+regressor = joblib.load(os.path.join(MODELS_DIR, "xgb_regressor.pkl"))
+explainer = shap.TreeExplainer(model)
 encoder = joblib.load(os.path.join(MODELS_DIR, "encoder.pkl"))
 scaler = joblib.load(os.path.join(MODELS_DIR, "scaler.pkl"))
 feature_columns = joblib.load(os.path.join(MODELS_DIR, "feature_columns.pkl"))
 
 # ── Config Constants ─────────────────────────────────────────────────────────
 COLS_TO_SCALE = [
-    'distance_km', 'num_scheduled_stops', 'scheduled_travel_hours',
+    'distance_km', 'num_scheduled_stops',
     'psr_count', 'zone_fog_index', 'zone_congestion_index',
     'season_severity_score', 'loco_age_years', 'coach_age_years',
     'maintenance_score', 'late_incoming_rake', 'route_historical_ontime_pct'
@@ -35,7 +38,8 @@ CAT_COLS = [
 ]
 
 TRAIN_CATALOG = {
-    "12002": "Vande Bharat Express",
+    "12002": "Bhopal Shatabdi Express",
+    "20172": "Vande Bharat Express (NDLS-RKMP)",
     "12951": "Mumbai Rajdhani",
     "12301": "Howrah Rajdhani",
     "12259": "Sealdah Duronto",
@@ -46,58 +50,44 @@ TRAIN_CATALOG = {
 }
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
-def _build_factors(journey_dict: dict, delay_prob: float) -> list[dict]:
-    """Generate delay factor breakdown based on actual real input values."""
+def _build_factors(full_df: pd.DataFrame, delay_prob: float) -> list[dict]:
+    """Generate delay factor breakdown using SHAP values from the model."""
     factors = []
     
-    # Weather / Fog
-    zone_fog_index = journey_dict.get("zone_fog_index", 0.0)
-    is_fog_risk = journey_dict.get("is_fog_risk", 0)
-    if zone_fog_index >= 0.6 or is_fog_risk:
-        impact = "HIGH" if zone_fog_index >= 0.8 else "MEDIUM"
+    # Calculate SHAP values for this instance
+    shap_values = explainer.shap_values(full_df)
+    
+    # Handle SHAP output format
+    if isinstance(shap_values, list):
+        shap_vals = shap_values[1][0] # Positive class
+    else:
+        if len(shap_values.shape) == 3:
+            shap_vals = shap_values[0, :, 1]
+        elif len(shap_values.shape) == 2:
+            shap_vals = shap_values[0]
+        else:
+            shap_vals = shap_values
+
+    # Pair features with their SHAP values
+    feature_names = full_df.columns.tolist()
+    feature_shap = list(zip(feature_names, shap_vals))
+    
+    # Sort by SHAP value descending (most positive impact on delay first)
+    feature_shap.sort(key=lambda x: x[1], reverse=True)
+    
+    # Take top 3 factors driving the delay
+    top_factors = [f for f in feature_shap if f[1] > 0.05][:3]
+    
+    for feature, shap_val in top_factors:
+        impact = "HIGH" if shap_val > 0.5 else ("MEDIUM" if shap_val > 0.2 else "LOW")
+        
+        # Make feature names readable
+        readable_name = feature.replace("_", " ").title()
+        
         factors.append({
-            "name": "Weather & Visibility",
-            "description": f"Fog conditions present (Index: {zone_fog_index:.2f}) - significant visibility reduction",
+            "name": readable_name,
+            "description": f"{readable_name} raised the delay risk by {shap_val:.2f} SHAP points",
             "impact": impact
-        })
-        
-    # Congestion
-    zone_congestion_index = journey_dict.get("zone_congestion_index", 0.0)
-    is_hdn_route = journey_dict.get("is_hdn_route", 0)
-    if zone_congestion_index >= 0.6 or is_hdn_route:
-        impact = "HIGH" if zone_congestion_index >= 0.8 else "MEDIUM"
-        factors.append({
-            "name": "Network Congestion",
-            "description": f"Zone Congestion: {zone_congestion_index:.2f} (HDN Route) - heavy traffic on route",
-            "impact": impact
-        })
-        
-    # Route History
-    route_historical_ontime_pct = journey_dict.get("route_historical_ontime_pct", 1.0)
-    if route_historical_ontime_pct < 0.6:
-        impact = "HIGH" if route_historical_ontime_pct < 0.4 else "MEDIUM"
-        factors.append({
-            "name": "Route Reliability",
-            "description": f"Historical on-time percentage is low ({route_historical_ontime_pct*100:.1f}%)",
-            "impact": impact
-        })
-        
-    # Incoming rake
-    late_incoming_rake = journey_dict.get("late_incoming_rake", 0)
-    if late_incoming_rake == 1:
-        factors.append({
-            "name": "Incoming Rake Delay",
-            "description": "Rake arrived late from its previous run causing cascading delay",
-            "impact": "HIGH"
-        })
-        
-    # Maintenance
-    maintenance_score = journey_dict.get("maintenance_score", 100.0)
-    if maintenance_score < 50:
-        factors.append({
-            "name": "Rake Maintenance",
-            "description": f"Sub-optimal maintenance score ({maintenance_score}) increases risk",
-            "impact": "MEDIUM"
         })
 
     # If no negative factors found but still delayed, mention general conditions
@@ -153,8 +143,12 @@ def predict_delay(journey_dict: dict) -> dict:
     probability = model.predict_proba(full_df)[0]
     delay_prob = round(float(probability[1]) * 100, 1)
 
-    # Derive predicted delay minutes from probability (heuristic)
-    predicted_delay_minutes = int(delay_prob * 0.6) if prediction == 1 else 0
+    # Derive predicted delay minutes from the Regressor model
+    if prediction == 1:
+        predicted_delay_minutes = int(regressor.predict(full_df)[0])
+        predicted_delay_minutes = max(0, predicted_delay_minutes)
+    else:
+        predicted_delay_minutes = 0
 
     # Risk level
     if delay_prob >= 70:
@@ -164,7 +158,7 @@ def predict_delay(journey_dict: dict) -> dict:
     else:
         risk_level = "LOW"
 
-    # Route progress (simulated)
+    # Route progress (simulated for UI purposes)
     route_progress = min(95, max(10, int(50 + (delay_prob - 50) * 0.3)))
 
     # Train name lookup
@@ -178,6 +172,6 @@ def predict_delay(journey_dict: dict) -> dict:
         "predicted_delay_minutes": predicted_delay_minutes,
         "risk_level": risk_level,
         "route_progress_percentage": route_progress,
-        "factors": _build_factors(journey_dict, delay_prob),
+        "factors": _build_factors(full_df, delay_prob),
         "last_updated": datetime.now(timezone.utc).isoformat()
     }

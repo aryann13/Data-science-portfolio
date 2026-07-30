@@ -19,7 +19,8 @@ import plotly.graph_objects as go
 API_URL: str = os.getenv("YATRIGAAN_API_URL", "http://127.0.0.1:8000/predict")
 
 TRAIN_OPTIONS: dict[str, str] = {
-    "12002": "12002 — Vande Bharat Express",
+    "12002": "12002 — Bhopal Shatabdi Express",
+    "20172": "20172 — Vande Bharat Express (NDLS-RKMP)",
     "12951": "12951 — Mumbai Rajdhani",
     "12301": "12301 — Howrah Rajdhani",
     "12259": "12259 — Sealdah Duronto",
@@ -27,6 +28,18 @@ TRAIN_OPTIONS: dict[str, str] = {
     "22691": "22691 — Bengaluru Rajdhani",
     "12245": "12245 — Shatabdi Express",
     "12560": "12560 — Shatabdi Express (NR)",
+}
+
+TRAIN_METADATA = {
+    "12002": {"type": "Shatabdi Express", "ontime": 90.0},
+    "20172": {"type": "Vande Bharat Express", "ontime": 95.0},
+    "12951": {"type": "Rajdhani Express", "ontime": 88.0},
+    "12301": {"type": "Rajdhani Express", "ontime": 85.0},
+    "12259": {"type": "Duronto Express", "ontime": 82.0},
+    "12627": {"type": "Superfast Express", "ontime": 75.0},
+    "22691": {"type": "Rajdhani Express", "ontime": 89.0},
+    "12245": {"type": "Shatabdi Express", "ontime": 91.0},
+    "12560": {"type": "Shatabdi Express", "ontime": 86.0},
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +95,45 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border: 1px solid rgba(255, 255, 255, 0.45) !important;
     border-radius: 20px !important;
     box-shadow: 0 8px 32px rgba(0, 51, 102, 0.12) !important;
+}
+
+/* ── Section Header Legibility Override ────────────────────────────────── */
+.stApp .main h1, .stApp .main h2, .stApp .main h3, .stApp .main h4, .stApp .main h5, .stApp .main h6,
+.stApp .main div[data-testid="stMarkdownContainer"] h1,
+.stApp .main div[data-testid="stMarkdownContainer"] h2,
+.stApp .main div[data-testid="stMarkdownContainer"] h3,
+.stApp .main div[data-testid="stMarkdownContainer"] h4 {
+    color: #003366 !important;
+    -webkit-text-fill-color: #003366 !important;
+    font-family: 'Poppins', sans-serif !important;
+    font-weight: 700 !important;
+    opacity: 1 !important;
+}
+
+.factor-header {
+    color: #003366 !important;
+    -webkit-text-fill-color: #003366 !important;
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    margin: 1.5rem 0 1rem 0 !important;
+    opacity: 1 !important;
+}
+
+
+
+/* ── Live Mode Banner ──────────────────────────────────────────────────── */
+.live-mode-banner {
+    background: linear-gradient(135deg, #003366, #002244);
+    color: #FF9933;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 0.6rem 1rem;
+    border-radius: 10px;
+    text-align: center;
+    margin: 0.5rem 0;
 }
 
 /* ── Header styling ────────────────────────────────────────────────────── */
@@ -142,7 +194,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     transform: translateY(-1px);
 }
 .factor-high { border-left-color: #FF9933 !important; }
-.factor-medium { border-left-color: #E6A817 !important; }
+.factor-medium { border-left-color: #F2B705 !important; }
 .factor-low { border-left-color: #6c8ebf !important; }
 
 .factor-impact {
@@ -156,7 +208,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     display: inline-block;
 }
 .impact-high { background: #FF993322; color: #CC6600; }
-.impact-medium { background: #E6A81722; color: #B8860B; }
+.impact-medium { background: #F2B70522; color: #b38600; }
 .impact-low { background: #00336615; color: #336699; }
 
 /* ── Journey timeline ──────────────────────────────────────────────────── */
@@ -311,44 +363,68 @@ def render_input_panel() -> dict:
         if demo_mode:
             st.info("Demo Mode — no backend required")
         else:
-            st.warning("🔴 Live API Mode")
+            st.markdown(
+                '<div class="live-mode-banner">🔴 Live API Mode — connected to Delay Oracle</div>',
+                unsafe_allow_html=True,
+            )
 
         st.markdown("---")
         
-        # 1. Core Train Details
-        with st.expander("🚂 Core Train Details", expanded=True):
+        # 1. High-Impact Operational Drivers
+        with st.expander("🔥 High-Impact Operational Drivers", expanded=True):
             train_number = st.selectbox(
                 "Select Train",
                 options=list(TRAIN_OPTIONS.keys()),
                 format_func=lambda k: TRAIN_OPTIONS[k],
             )
-            train_type = st.selectbox("Train Type", [
-                "Superfast Express", "Rajdhani Express", "Shatabdi Express",
-                "Vande Bharat Express", "Mail/Express", "Duronto Express",
-                "Intercity Express", "Passenger Train", "DEMU/MEMU",
-                "Garib Rath Express", "Jan Shatabdi Express",
-                "Humsafar Express", "Tejas Express", "Gatimaan Express",
-                "Sampark Kranti Express"
-            ])
-            traction_type = st.selectbox("Traction Type", ["Electric (25kV AC)", "Diesel", "Dual"])
-            distance_km = st.number_input("Distance (km)", min_value=10.0, value=450.0)
-            loco_age_years = st.number_input("Loco Age (Years)", 0.0, 50.0, 5.0)
             
-        # 2. Operations & Route
-        with st.expander("🛤️ Operations & Route", expanded=False):
+            # Map features dynamically behind the scenes
+            train_type = TRAIN_METADATA.get(train_number, {"type": "Mail/Express"})["type"]
+            route_historical_ontime_pct = TRAIN_METADATA.get(train_number, {"ontime": 65.0})["ontime"]
+            
+            st.info(f"**Train Type:** {train_type} | **Historical Punctuality:** {route_historical_ontime_pct}%")
+
+            late_incoming_rake = st.checkbox(
+                "🚨 Late Incoming Rake?",
+                value=False,
+                help="Top ML Feature (18.7% impact): Did the train arrive late from its previous run?"
+            )
+            distance_km = st.number_input("Distance (km)", min_value=10.0, value=707.0)
+
+        # 2. Environmental & Congestion Factors
+        with st.expander("🌧️ Environment & Congestion", expanded=True):
+            season = st.selectbox("Season", ["Winter/Fog", "Monsoon", "Summer", "Pre-Monsoon", "Post-Monsoon", "Autumn"])
+            
+            # Map season to typical default month to prevent contradictory user inputs
+            season_month_map = {
+                "Winter/Fog": 1,      # January
+                "Pre-Monsoon": 4,     # April
+                "Summer": 5,          # May
+                "Monsoon": 7,         # July
+                "Post-Monsoon": 10,   # October
+                "Autumn": 11          # November
+            }
+            default_month = season_month_map.get(season, 1)
+
+            col_m, col_h = st.columns(2)
+            with col_m:
+                month = st.slider("Month (1-12)", 1, 12, default_month, help="Auto-synced with Season (e.g. May for Summer)")
+            with col_h:
+                departure_hour = st.slider("Departure Hour (0-23)", 0, 23, 6, help="0 = Midnight, 12 = Noon")
+            
+            zone_fog_index = st.slider("Fog Index (0-1)", 0.0, 1.0, 0.85, help="1.0 = Dense blind fog, 0.0 = Clear skies")
+            zone_congestion_index = st.slider("Congestion Index (0-1)", 0.0, 1.0, 0.50, help="1.0 = Heavy track traffic")
+
+        # 3. Secondary Assets & Maintenance
+        with st.expander("⚙️ Secondary Assets & Maintenance", expanded=False):
             zone_abbr = st.selectbox("Railway Zone", [
                 "NR", "CR", "WR", "SR", "ER", "SCR", "NWR",
                 "ECR", "ECoR", "NCR", "NER", "NFR", "SECR",
                 "SER", "SWR", "WCR"
             ])
-            maintenance_score = st.slider("Maintenance Score (0-100)", 0.0, 100.0, 72.0, help="Lower score = poorly maintained rake")
-            route_historical_ontime_pct = st.slider("Historical Route On-Time %", 0.0, 1.0, 0.78)
-            late_incoming_rake = st.checkbox("Late Incoming Rake?", value=False, help="Did the train arrive late from its previous journey?")
-
-        # 3. Environment & Congestion
-        with st.expander("🌧️ Environment & Congestion", expanded=False):
-            zone_fog_index = st.slider("Fog Index (0-1)", 0.0, 1.0, 0.4, help="1.0 = Blind fog, 0.0 = Clear skies")
-            zone_congestion_index = st.slider("Congestion Index (0-1)", 0.0, 1.0, 0.6, help="1.0 = Maximum track traffic")
+            traction_type = st.selectbox("Traction Type", ["Electric (25kV AC)", "Diesel", "Dual"])
+            loco_age_years = st.number_input("Loco Age (Years)", 0.0, 50.0, 10.0, help="Minor feature (<0.45% model importance)")
+            maintenance_score = st.slider("Maintenance Score (0-100)", 0.0, 100.0, 90.0, help="Minor feature (<0.05% model importance)")
 
         st.markdown("---")
         predict_clicked = st.button("🔮 Predict Delay", use_container_width=True)
@@ -366,19 +442,15 @@ def render_input_panel() -> dict:
         "late_incoming_rake": 1 if late_incoming_rake else 0,
         "zone_fog_index": zone_fog_index,
         "zone_congestion_index": zone_congestion_index,
+        "season": season,
+        "month": month,
+        "departure_hour": departure_hour,
         
         # Hardcoded Background Features (to keep UI clean)
-        "year": 2024,
-        "month": 1,
         "day_of_week": 0,
-        "departure_hour": 8,
-        "is_weekend": 0,
-        "is_night_departure": 0,
-        "is_peak_hour": 1,
+        "is_night_departure": 1 if (departure_hour >= 22 or departure_hour <= 5) else 0,
         "is_festival_season": 0,
         "num_scheduled_stops": 8,
-        "scheduled_travel_hours": distance_km / 60.0,  # rough estimate
-        "is_special_train": 0,
         "has_lhb_coaches": 1,
         "is_rake_shared": 0,
         "coach_age_years": 8.0,
@@ -386,12 +458,8 @@ def render_input_panel() -> dict:
         "destination_station_category": "A",
         "psr_count": 2,
         "track_doubled": 1,
-        "is_electrified": 1,
         "is_hdn_route": 1,
-        "season": "Winter/Fog",
-        "season_severity_score": 1.2,
-        "is_fog_risk": 1 if zone_fog_index >= 0.5 else 0,
-        "is_monsoon_season": 0,
+        "season_severity_score": 1.2 if season == "Winter/Fog" else (1.5 if season == "Monsoon" else 1.0),
     }
 
     if predict_clicked:
@@ -409,7 +477,7 @@ def render_loading_state() -> None:
     loading_container.markdown(
         """
         <div class="glass-card" style="text-align:center; padding:2.5rem;" aria-live="polite">
-            <div class="loading-train">🚄</div>
+            <div class="loading-train">🚆</div>
             <h3 style="color:#003366; margin-top:1rem;">
                 Kripya Dhyaan Dijiye...
             </h3>
@@ -515,13 +583,13 @@ def fetch_prediction(payload: dict, demo_mode: bool = True) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def render_gauge(probability: float) -> None:
     """Render a circular probability gauge using Plotly."""
-    bar_color = "#FF9933" if probability >= 70 else "#E6A817" if probability >= 40 else "#28a745"
+    bar_color = "#FF9933" if probability >= 70 else "#F2B705" if probability >= 40 else "#28a745"
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=probability,
         number={"suffix": "%", "font": {"size": 42, "family": "Poppins", "color": "#003366"}},
-        title={"text": "Delay Probability", "font": {"size": 16, "family": "Inter", "color": "#336699"}},
+        title={"text": "Delay Probability", "font": {"size": 16, "family": "Inter", "color": "#003366"}},
         gauge={
             "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#ccc",
                      "tickfont": {"family": "Inter", "size": 11}},
@@ -529,9 +597,9 @@ def render_gauge(probability: float) -> None:
             "bgcolor": "rgba(0,0,0,0)",
             "borderwidth": 0,
             "steps": [
-                {"range": [0, 40], "color": "rgba(40, 167, 69, 0.1)"},
-                {"range": [40, 70], "color": "rgba(230, 168, 23, 0.1)"},
-                {"range": [70, 100], "color": "rgba(255, 153, 51, 0.15)"},
+                {"range": [0, 40], "color": "rgba(40, 167, 69, 0.04)"},
+                {"range": [40, 70], "color": "rgba(242, 183, 5, 0.04)"},
+                {"range": [70, 100], "color": "rgba(255, 153, 51, 0.06)"},
             ],
             "threshold": {
                 "line": {"color": "#003366", "width": 2},
@@ -561,10 +629,10 @@ def render_journey_timeline(progress_pct: float) -> None:
         <div style="padding: 0.5rem 0;">
             <div class="timeline-track">
                 <div class="timeline-fill" style="width: {progress_pct}%;"></div>
-                <span class="timeline-train" style="left: calc({progress_pct}% - 15px);">🚄</span>
+                <span class="timeline-train" style="left: calc({progress_pct}% - 15px);">🚆</span>
             </div>
             <div class="timeline-labels">
-                <span>🏁 Origin</span>
+                <span>⚪ Origin</span>
                 <span>{progress_pct}% Complete</span>
                 <span>📍 Destination</span>
             </div>
@@ -579,7 +647,7 @@ def render_journey_timeline(progress_pct: float) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def render_factors_breakdown(factors: list[dict]) -> None:
     """Render the delay factor cards with impact-based styling."""
-    st.markdown("#### 🔍 Delay Factor Analysis")
+    st.markdown('<div class="factor-header">🔍 Delay Factor Analysis</div>', unsafe_allow_html=True)
     for factor in factors:
         impact = factor.get("impact", "LOW").upper()
         css_class = f"factor-{impact.lower()}"
@@ -595,7 +663,7 @@ def render_factors_breakdown(factors: list[dict]) -> None:
                     </strong>
                     <span class="factor-impact {impact_class}">{icon} {impact}</span>
                 </div>
-                <p style="margin:0.4rem 0 0 0; color:#4a6a8a; font-size:0.88rem;">
+                <p style="margin:0.4rem 0 0 0; color:#1a365d; font-weight:500; font-size:0.88rem;">
                     {factor.get('description', '')}
                 </p>
             </div>
@@ -670,7 +738,7 @@ def render_boarding_pass(data: dict) -> None:
             </div>
             """, unsafe_allow_html=True)
     with col3:
-        risk_color = {"HIGH": "#FF9933", "MEDIUM": "#E6A817", "LOW": "#28a745"}.get(risk, '#003366')
+        risk_color = {"HIGH": "#FF9933", "MEDIUM": "#F2B705", "LOW": "#28a745"}.get(risk, '#003366')
         risk_icon = {"HIGH": "⚠️", "MEDIUM": "🔶", "LOW": "✅"}.get(risk, '')
         st.markdown(
             f"""
